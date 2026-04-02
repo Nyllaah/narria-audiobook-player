@@ -21,6 +21,13 @@ type SeekBarProps = {
   style?: object;
 };
 
+function getSeekPosition(locationX: number, trackWidth: number, safeDuration: number): number {
+  const w = trackWidth;
+  if (w <= 0) return 0;
+  const x = Math.max(0, Math.min(w, locationX));
+  return (x / w) * safeDuration;
+}
+
 export function SeekBar({
   position,
   duration,
@@ -33,6 +40,7 @@ export function SeekBar({
   onSeekComplete,
   style,
 }: SeekBarProps) {
+  const containerRef = useRef<View>(null);
   const trackWidthRef = useRef(0);
   const [trackWidth, setTrackWidth] = useState(0);
   const [dragX, setDragX] = useState<number | null>(null);
@@ -52,6 +60,21 @@ export function SeekBar({
     ? displayX - THUMB_SIZE / 2
     : ratio * trackWidth - THUMB_SIZE / 2;
 
+  const ensureTrackWidth = useRef((locationX: number, onReady: (w: number) => void) => {
+    const w = trackWidthRef.current;
+    if (w > 0) {
+      onReady(w);
+      return;
+    }
+    containerRef.current?.measure((_x, _y, width) => {
+      if (width > 0) {
+        trackWidthRef.current = width;
+        setTrackWidth(width);
+        onReady(width);
+      }
+    });
+  }).current;
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -59,29 +82,32 @@ export function SeekBar({
       onMoveShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponderCapture: () => true,
       onPanResponderGrant: (evt) => {
-        const w = trackWidthRef.current;
-        if (w <= 0) return;
-        const x = Math.max(0, Math.min(w, evt.nativeEvent.locationX));
-        const pos = (x / w) * safeDuration;
-        onSeekStart();
-        setDragX(x);
-        onSeekChange(pos);
+        const locationX = evt.nativeEvent.locationX;
+        ensureTrackWidth(locationX, (w) => {
+          const x = Math.max(0, Math.min(w, locationX));
+          const pos = getSeekPosition(locationX, w, safeDuration);
+          onSeekStart();
+          setDragX(x);
+          onSeekChange(pos);
+        });
       },
       onPanResponderMove: (evt) => {
+        const locationX = evt.nativeEvent.locationX;
         const w = trackWidthRef.current;
         if (w <= 0) return;
-        const x = Math.max(0, Math.min(w, evt.nativeEvent.locationX));
+        const x = Math.max(0, Math.min(w, locationX));
         const pos = (x / w) * safeDuration;
         setDragX(x);
         onSeekChange(pos);
       },
       onPanResponderRelease: (evt) => {
+        const locationX = evt.nativeEvent.locationX;
         const w = trackWidthRef.current;
         if (w <= 0) {
           setDragX(null);
           return;
         }
-        const x = Math.max(0, Math.min(w, evt.nativeEvent.locationX));
+        const x = Math.max(0, Math.min(w, locationX));
         const pos = (x / w) * safeDuration;
         setDragX(null);
         onSeekComplete(pos);
@@ -91,6 +117,7 @@ export function SeekBar({
 
   return (
     <View
+      ref={containerRef}
       style={[styles.container, style]}
       onLayout={(e) => {
         const w = e.nativeEvent.layout.width;
